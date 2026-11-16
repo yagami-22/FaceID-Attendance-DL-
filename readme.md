@@ -694,3 +694,10 @@ data under GDPR Article 9, need written consent under Illinois BIPA, and need
 verifiable parental consent under India's DPDP Act. Whoever runs that server
 is accountable for all of it. One instance per school keeps each school in
 control of its own students' data, and is the model to ship.
+
+## 🚀 Live Demo
+
+The FaceID Attendance System is deployed on Render.
+
+**Live Website:** https://faceid-attendance-v0i9.onrender.com
+
