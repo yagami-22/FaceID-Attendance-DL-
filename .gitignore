@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# Personal data - NEVER commit these.
+# faces/ holds students' biometric photos and the database holds their
+# attendance records. Both are personal data and must stay off GitHub.
+# ---------------------------------------------------------------------------
+faces/*
+!faces/.gitkeep
+instance/
+*.db
+*.db-wal
+*.db-shm
+# Anchored. Unanchored, "attendance/" matches at any depth -- including
+# android/app/src/main/java/com/faceid/attendance/, which is the package
+# directory holding every line of the Android app. It did, and the app's
+# source was silently absent from the repository while building fine locally.
+/attendance/
+uploads/
+session_photos/
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets / config
+.env
+.env.*
+
+# Generated reports
+*.xlsx
+!docs/*.xlsx
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# rendertest.py writes its rendered pages here
+render/
+!.env.example
+.Rhistory

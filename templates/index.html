@@ -1,0 +1,828 @@
+{% extends "base.html" %}
+{% block title %}Take Attendance{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto flex flex-col gap-5">
+
+  {% if not classes %}
+  <!-- ── EMPTY STATE ── -->
+  <div class="bg-white rounded-xl border border-bdr shadow-sm p-10 text-center">
+    <span class="material-symbols-outlined text-primary text-[48px]">school</span>
+    <h1 class="text-lg font-bold text-txt mt-3">Set up your first class</h1>
+    <p class="text-sm text-txt-m mt-1 max-w-md mx-auto">Create a class, enrol students with one clear photo each, then come back here to take attendance from a photo of the room.</p>
+    <a href="/students_page" class="inline-flex items-center gap-2 bg-primary hover:bg-blue-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg mt-5 transition-colors">
+      <span class="material-symbols-outlined text-[18px]">group_add</span>Go to Students
+    </a>
+  </div>
+  {% else %}
+
+  <!-- ── SESSION SETUP ── -->
+  <div class="bg-white rounded-xl border border-bdr shadow-sm p-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div>
+        <label for="sel-class" class="block text-[10px] font-semibold text-txt-m uppercase tracking-wider mb-1">Class</label>
+        <select id="sel-class" onchange="switchClass(this.value)" class="w-full border-bdr rounded-lg text-sm py-2 focus:ring-primary focus:border-primary">
+          {% for c in classes %}
+          <option value="{{ c.id }}" {{ 'selected' if c.id == class_id }}>{{ c.name }}{% if c.subject %} · {{ c.subject }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="in-date" class="block text-[10px] font-semibold text-txt-m uppercase tracking-wider mb-1">Date</label>
+        <input type="date" id="in-date" value="{{ today }}" class="w-full border-bdr rounded-lg text-sm py-2 focus:ring-primary focus:border-primary"/>
+      </div>
+      <div>
+        <label for="in-period" class="block text-[10px] font-semibold text-txt-m uppercase tracking-wider mb-1">Period</label>
+        <select id="in-period" class="w-full border-bdr rounded-lg text-sm py-2 focus:ring-primary focus:border-primary">
+          {% for p in range(1, 9) %}<option value="{{ p }}">Period {{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="in-teacher" class="block text-[10px] font-semibold text-txt-m uppercase tracking-wider mb-1">Taken by</label>
+        <input type="text" id="in-teacher" placeholder="Teacher name" class="w-full border-bdr rounded-lg text-sm py-2 focus:ring-primary focus:border-primary"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STATS ── -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="bg-white rounded-xl border border-bdr p-4 shadow-sm">
+      <div class="text-txt-m text-[10px] font-medium uppercase tracking-wider mb-1">Enrolled</div>
+      <div class="text-2xl font-bold text-txt font-mono">{{ stats.students }}</div>
+      <div class="text-[10px] text-txt-f mt-0.5">students in class</div>
+    </div>
+    <div class="bg-white rounded-xl border border-bdr p-4 shadow-sm">
+      <div class="text-txt-m text-[10px] font-medium uppercase tracking-wider mb-1">Sessions</div>
+      <div class="text-2xl font-bold text-txt font-mono">{{ stats.total_sessions }}</div>
+      <div class="text-[10px] text-txt-f mt-0.5">{{ stats.sessions_today }} today</div>
+    </div>
+    <div class="bg-success-light rounded-xl border border-success/30 p-4 shadow-sm">
+      <div class="text-green-800 text-[10px] font-medium uppercase tracking-wider mb-1">Average</div>
+      <div class="text-2xl font-bold text-success font-mono">{{ stats.avg_percent }}%</div>
+      <div class="text-[10px] text-green-800/70 mt-0.5">attendance</div>
+    </div>
+    <div class="{{ 'bg-warn-light border-warn/30' if stats.defaulters else 'bg-white border-bdr' }} rounded-xl border p-4 shadow-sm">
+      <div class="text-[10px] font-medium uppercase tracking-wider mb-1 {{ 'text-warn' if stats.defaulters else 'text-txt-m' }}">Defaulters</div>
+      <div class="text-2xl font-bold font-mono {{ 'text-warn' if stats.defaulters else 'text-txt' }}">{{ stats.defaulters }}</div>
+      <div class="text-[10px] text-txt-f mt-0.5">below 75%</div>
+    </div>
+  </div>
+
+  <div class="flex flex-col lg:flex-row gap-5">
+    <!-- ── LEFT: CAPTURE ── -->
+    <div class="w-full lg:w-[58%] flex flex-col gap-4">
+      <div class="bg-white rounded-xl border border-bdr shadow-sm flex flex-col overflow-hidden">
+        <div class="px-4 py-3 border-b border-bdr bg-surface-el flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[18px]">burst_mode</span>
+            <h2 class="font-semibold text-txt text-sm">Class Photos</h2>
+          </div>
+          <span class="text-[10px] font-mono bg-white text-txt-m px-2 py-0.5 rounded border border-bdr" id="hud-status">READY</span>
+        </div>
+
+        <div class="relative bg-slate-50" id="drop-zone" style="min-height:320px">
+          <div id="drop-prompt" class="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6">
+            <div class="w-20 h-20 rounded-2xl bg-primary-light border-2 border-dashed border-primary/40 flex items-center justify-center">
+              <span class="material-symbols-outlined text-primary text-[40px]">add_a_photo</span>
+            </div>
+            <div class="text-center">
+              <p class="text-txt-m text-sm">Drop one or more photos of the class here</p>
+              <p class="text-txt-f text-xs mt-0.5">Up to <span id="max-photos">{{ max_photos_per_scan|default(8) }}</span> photos · JPG, PNG or HEIC</p>
+            </div>
+            <div class="flex flex-wrap gap-3 justify-center">
+              <label for="file-input" class="bg-primary hover:bg-blue-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg cursor-pointer flex items-center gap-2 transition-colors shadow-sm">
+                <span class="material-symbols-outlined text-[18px]">upload</span>Upload Photos
+              </label>
+              <!-- Two controls, one of which is hidden on load by pickCameraControl().
+                   They look identical; the difference is how the camera opens.
+
+                   The label is the one a phone gets. Pointing a <label> at the
+                   capture input is the only reliable way to open a phone's
+                   camera: calling .click() on a hidden file input from script
+                   makes Android browsers drop the `capture` attribute and show
+                   the ordinary file chooser instead, which is what "Use Camera
+                   asks me to upload a photo" turns out to be. The gallery
+                   button beside it has always used a label, and has always
+                   worked -- that asymmetry was the bug. -->
+              <label for="camera-input" id="camera-label" class="bg-white border border-bdr text-txt-m text-sm px-5 py-2.5 rounded-lg cursor-pointer flex items-center gap-2 hover:border-primary hover:text-primary transition-colors shadow-sm">
+                <span class="material-symbols-outlined text-[18px]">camera_alt</span>Use Camera
+              </label>
+              <button type="button" id="camera-button" onclick="openCamera()" class="hidden bg-white border border-bdr text-txt-m text-sm px-5 py-2.5 rounded-lg items-center gap-2 hover:border-primary hover:text-primary transition-colors shadow-sm">
+                <span class="material-symbols-outlined text-[18px]">camera_alt</span>Use Camera
+              </button>
+            </div>
+            <p class="text-[11px] text-txt-f text-center max-w-sm">
+              Covering the room in two or three shots (left, right, back row) identifies far more students than one wide photo.
+            </p>
+          </div>
+          <!-- No capture attribute here: on Android/iOS `capture` forces the camera and
+               silently overrides `multiple`, limiting the picker to a single shot.
+               Gallery multi-select needs it absent. Live capture has its own button. -->
+          <input type="file" id="file-input" accept="image/*,.heic,.heif" multiple class="hidden" onchange="handleFiles(this)"/>
+          <!-- The camera fallback. `capture` hands the job to the phone's own
+               camera app, which needs no secure context and no permission
+               prompt of ours. Single-shot by design: capture overrides
+               `multiple`, and the teacher taps again for the next angle. -->
+          <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden" onchange="handleFiles(this)"/>
+
+          <div id="preview-wrap" class="hidden absolute inset-0 bg-slate-900 flex items-center justify-center p-2">
+            <canvas id="preview-canvas"></canvas>
+          </div>
+          <div id="drag-hl" class="absolute inset-0 border-2 border-dashed border-primary rounded-xl pointer-events-none opacity-0 transition-opacity bg-primary/5"></div>
+        </div>
+
+        <!-- thumbnail strip -->
+        <div id="thumb-strip" class="hidden border-t border-bdr bg-surface-el px-3 py-2.5 gap-2 overflow-x-auto items-center"></div>
+
+        <div id="proc-banner" class="hidden px-4 py-2.5 bg-primary-light border-t border-primary/20 items-center gap-2">
+          <div class="spinner"></div>
+          <span class="text-xs font-mono text-primary" id="proc-text">Detecting and identifying faces…</span>
+        </div>
+
+        <div class="px-4 py-2 border-t border-bdr flex flex-wrap justify-between items-center gap-2 text-[10px] text-txt-f font-mono">
+          <span id="footer-info">No photos loaded</span>
+          <div class="flex gap-3">
+            <label for="file-input" class="text-primary hover:underline cursor-pointer" id="add-more" style="display:none">Add more</label>
+            <button type="button" onclick="resetScan()" class="text-primary hover:underline">Clear all</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-4 gap-3" id="scan-stats" style="display:none">
+        <div class="bg-white rounded-xl border border-bdr p-3 text-center shadow-sm">
+          <div class="text-[10px] text-txt-m uppercase tracking-wider">Photos</div>
+          <div class="text-xl font-bold font-mono text-txt" id="stat-images">0</div>
+        </div>
+        <div class="bg-white rounded-xl border border-bdr p-3 text-center shadow-sm">
+          <div class="text-[10px] text-txt-m uppercase tracking-wider">Faces</div>
+          <div class="text-xl font-bold font-mono text-txt" id="stat-total">0</div>
+        </div>
+        <div class="bg-success-light rounded-xl border border-success/30 p-3 text-center shadow-sm">
+          <div class="text-[10px] text-green-800 uppercase tracking-wider">Identified</div>
+          <div class="text-xl font-bold font-mono text-success" id="stat-matched">0</div>
+        </div>
+        <div class="bg-warn-light rounded-xl border border-warn/30 p-3 text-center shadow-sm">
+          <div class="text-[10px] text-warn uppercase tracking-wider">Check</div>
+          <div class="text-xl font-bold font-mono text-warn" id="stat-unknown">0</div>
+        </div>
+      </div>
+
+      <button id="scan-btn" disabled onclick="runScan()"
+        class="w-full bg-primary hover:bg-blue-700 text-white font-bold rounded-xl py-4 transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined text-[20px]">search</span><span id="scan-label">IDENTIFY STUDENTS</span>
+      </button>
+    </div>
+
+    <!-- ── RIGHT: REVIEW ── -->
+    <div class="w-full lg:w-[42%] flex flex-col gap-4">
+      <div class="bg-white rounded-xl border border-bdr shadow-sm flex flex-col overflow-hidden">
+        <div class="px-4 py-3 border-b border-bdr bg-surface-el flex justify-between items-center">
+          <h3 class="font-semibold text-txt text-sm flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[18px]">fact_check</span>Review &amp; Confirm
+          </h3>
+          <span class="text-[10px] font-mono text-txt-f"><span id="review-present">0</span> / {{ students|length }} present</span>
+        </div>
+
+        <div class="px-4 py-2.5 bg-primary-light/50 border-b border-bdr text-[11px] text-txt-m flex items-start gap-1.5">
+          <span class="material-symbols-outlined text-primary text-[14px] mt-px">info</span>
+          <span>Nothing is saved until you press Confirm. Correct any mistakes first &mdash; you are the final authority, not the model.</span>
+        </div>
+
+        <!-- Advice the teacher can act on between one photo and the next:
+             faces too small to identify, or students enrolled from one photo. -->
+        <div id="scan-hints" class="hidden px-4 py-2.5 bg-warn-light border-b border-warn/30 text-[11px] text-warn flex-col gap-1"></div>
+
+        <div class="px-3 py-2 border-b border-bdr flex flex-col gap-2">
+          <div class="relative">
+            <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-txt-f text-[16px]">search</span>
+            <input id="review-search" type="search" placeholder="Find a student by name or roll number"
+                   oninput="renderReview()" autocomplete="off"
+                   class="w-full border border-bdr rounded-lg pl-8 pr-3 py-1.5 text-xs focus:ring-primary focus:border-primary"/>
+          </div>
+          <div class="flex gap-1.5 flex-wrap" id="review-filters">
+            <button type="button" data-filter="all"     onclick="setFilter('all')"     class="review-chip">All <span class="font-mono" id="count-all">0</span></button>
+            <button type="button" data-filter="review"  onclick="setFilter('review')"  class="review-chip">Needs a look <span class="font-mono" id="count-review">0</span></button>
+            <button type="button" data-filter="present" onclick="setFilter('present')" class="review-chip">Present <span class="font-mono" id="count-present">0</span></button>
+            <button type="button" data-filter="absent"  onclick="setFilter('absent')"  class="review-chip">Absent <span class="font-mono" id="count-absent">0</span></button>
+          </div>
+        </div>
+
+        <div class="overflow-y-auto" id="review-list" style="max-height:430px">
+          <div class="text-center text-txt-f text-xs py-12 px-4">
+            Scan your class photos and every student will appear here for you to check.
+          </div>
+        </div>
+
+        <div class="p-3 border-t border-bdr flex flex-col gap-2">
+          <button type="button" id="accept-suggested" onclick="acceptSuggested()" disabled
+            class="w-full text-xs border border-primary/40 bg-primary-light text-primary rounded-lg py-2 font-semibold hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            Accept all <span class="font-mono" id="suggested-count">0</span> suggested
+          </button>
+          <div class="flex gap-2">
+            <button type="button" onclick="markAll('absent')" class="flex-1 text-xs border border-bdr rounded-lg py-2 text-txt-m hover:border-danger hover:text-danger transition-colors">Clear all</button>
+            <button type="button" onclick="markAll('present')" class="flex-1 text-xs border border-bdr rounded-lg py-2 text-txt-m hover:border-success hover:text-success transition-colors">Mark all present</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="confirm-btn" disabled onclick="confirmSession()"
+        class="w-full bg-success hover:bg-green-700 text-white font-bold rounded-xl py-4 transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined text-[20px]">task_alt</span>CONFIRM &amp; SAVE ATTENDANCE
+      </button>
+
+      {% if recent %}
+      <div class="bg-white rounded-xl border border-bdr shadow-sm overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-bdr bg-surface-el text-xs font-semibold text-txt">Recent sessions</div>
+        {% for s in recent %}
+        <a href="/records/{{ s.id }}" class="flex justify-between items-center px-4 py-2.5 border-b border-bdr last:border-0 hover:bg-surface-el transition-colors">
+          <span class="text-xs font-mono text-txt-m">{{ s.date }} · P{{ s.period }}</span>
+          <span class="text-[10px] font-mono">
+            <span class="text-success">{{ s.present_count }}P</span> ·
+            <span class="text-danger">{{ s.absent_count }}A</span>
+          </span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block modals %}
+<div id="camera-modal" class="fixed inset-0 bg-black/50 z-[200] items-center justify-center backdrop-blur-sm p-4">
+  <div class="bg-white rounded-xl border border-bdr shadow-2xl w-full max-w-lg overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-bdr bg-surface-el">
+      <span class="flex items-center gap-2 text-sm font-semibold text-txt">
+        <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>Live Camera
+      </span>
+      <button onclick="closeCamera()" class="text-txt-m hover:text-txt" aria-label="Close camera">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <video id="camera-video" autoplay playsinline class="w-full aspect-video bg-black object-cover block"></video>
+    <div class="px-4 py-2 bg-white border-t border-bdr text-center text-[11px] text-txt-m">
+      Captured <span class="font-mono font-bold" id="cam-count">0</span> · keep shooting to cover the whole room
+    </div>
+    <div class="p-4 flex justify-center gap-2 bg-surface-el border-t border-bdr">
+      <button onclick="capturePhoto()" class="bg-primary hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-lg flex items-center gap-2 shadow-md transition-colors">
+        <span class="material-symbols-outlined text-[18px]">radio_button_checked</span>Capture
+      </button>
+      <button onclick="closeCamera()" class="bg-white border border-bdr text-txt-m px-6 py-3 rounded-lg hover:border-primary hover:text-primary transition-colors">Done</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CLASS_ID = {{ class_id or 'null' }};
+const MAX_PHOTOS = {{ max_photos_per_scan|default(8) }};
+
+/* photos = [{ file, dataUrl, width, height, faces }] */
+let photos = [];
+let activePhoto = 0;
+let mediaStream = null, lastScan = null;
+
+let roster = {{ students|map(attribute='id')|list|tojson }}.map((id, i) => ({
+  id: id,
+  roll_no: {{ students|map(attribute='roll_no')|list|tojson }}[i],
+  name: {{ students|map(attribute='name')|list|tojson }}[i],
+  status: "absent", confidence: null, manual: false, note: "", photo: null,
+  references: null
+}));
+
+function switchClass(id) { window.location = "/?class_id=" + id; }
+
+/* Student names and roll numbers are typed by a teacher and stored, so they
+   are untrusted by the time they come back out of the database. Every one of
+   them below lands in innerHTML, where a name like <img onerror=...> would
+   run as script for whoever opens the page. Escape on the way in. */
+function esc(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+document.getElementById("max-photos") && (document.getElementById("max-photos").textContent = MAX_PHOTOS);
+
+/* ---------- photo input ---------- */
+const dz = document.getElementById("drop-zone");
+if (dz) {
+  const dh = document.getElementById("drag-hl");
+  dz.addEventListener("dragover", e => { e.preventDefault(); dh.style.opacity = "1"; });
+  dz.addEventListener("dragleave", () => dh.style.opacity = "0");
+  dz.addEventListener("drop", e => {
+    e.preventDefault(); dh.style.opacity = "0";
+    addFiles([...e.dataTransfer.files].filter(isImageFile));
+  });
+}
+
+/* Chrome on Windows reports no MIME type for .heic, so a dragged iPhone photo
+   would be filtered out. Fall back to the file extension in that case. */
+function isImageFile(f) {
+  return f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|webp|bmp)$/i.test(f.name);
+}
+
+function handleFiles(inp) {
+  addFiles([...inp.files]);
+  inp.value = "";   // allow re-picking the same file
+}
+
+function addFiles(files) {
+  if (!files.length) return;
+  const room = MAX_PHOTOS - photos.length;
+  if (room <= 0) { alert("You can scan at most " + MAX_PHOTOS + " photos in one session."); return; }
+  if (files.length > room) {
+    alert("Only " + room + " more photo(s) can be added — the rest were ignored.");
+    files = files.slice(0, room);
+  }
+  let pending = files.length;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        photos.push({ file, dataUrl: e.target.result, width: img.width, height: img.height, faces: [] });
+        if (--pending === 0) { activePhoto = photos.length - 1; refreshPhotoUI(); }
+      };
+      img.onerror = () => { if (--pending === 0) refreshPhotoUI(); };
+      img.src = e.target.result;
+    };
+    reader.onerror = () => { if (--pending === 0) refreshPhotoUI(); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function removePhoto(i, ev) {
+  if (ev) ev.stopPropagation();
+  photos.splice(i, 1);
+  if (activePhoto >= photos.length) activePhoto = Math.max(0, photos.length - 1);
+  // Boxes belong to the old numbering, so a re-scan is required.
+  lastScan = null;
+  photos.forEach(p => p.faces = []);
+  document.getElementById("confirm-btn").disabled = true;
+  document.getElementById("scan-stats").style.display = "none";
+  refreshPhotoUI();
+}
+
+function refreshPhotoUI() {
+  const has = photos.length > 0;
+  document.getElementById("drop-prompt").classList.toggle("hidden", has);
+  document.getElementById("preview-wrap").classList.toggle("hidden", !has);
+  document.getElementById("scan-btn").disabled = !has;
+  document.getElementById("add-more").style.display = has ? "inline" : "none";
+
+  const strip = document.getElementById("thumb-strip");
+  strip.classList.toggle("hidden", !has);
+  strip.classList.toggle("flex", has);
+
+  const totalMb = photos.reduce((sum, p) => sum + p.file.size, 0) / 1048576;
+  document.getElementById("footer-info").textContent = has
+    ? photos.length + (photos.length === 1 ? " photo" : " photos") + " · " + totalMb.toFixed(1) + " MB"
+    : "No photos loaded";
+  document.getElementById("scan-label").textContent = photos.length > 1
+    ? "IDENTIFY STUDENTS IN " + photos.length + " PHOTOS" : "IDENTIFY STUDENTS";
+
+  strip.innerHTML = photos.map((p, i) => {
+    const n = (p.faces || []).length;
+    const tag = lastScan ? '<span class="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[9px] font-mono text-center py-px">' + n + ' face' + (n === 1 ? '' : 's') + '</span>' : '';
+    return `
+    <button type="button" onclick="selectPhoto(${i})"
+      class="relative flex-shrink-0 w-20 h-16 rounded-lg overflow-hidden border-2 transition-colors ${i === activePhoto ? 'border-primary' : 'border-bdr hover:border-primary/50'}">
+      <img src="${p.dataUrl}" alt="Photo ${i + 1}" class="w-full h-full object-cover"/>
+      <span class="absolute top-0 left-0 bg-black/70 text-white text-[9px] font-mono px-1">${i + 1}</span>
+      <span onclick="removePhoto(${i}, event)" role="button" aria-label="Remove photo ${i + 1}"
+            class="absolute top-0 right-0 bg-danger text-white w-4 h-4 flex items-center justify-center text-[10px] leading-none">×</span>
+      ${tag}
+    </button>`;
+  }).join("");
+
+  if (has) drawPhoto();
+}
+
+function selectPhoto(i) { activePhoto = i; refreshPhotoUI(); }
+
+function resetScan() {
+  photos = []; activePhoto = 0; lastScan = null;
+  document.getElementById("confirm-btn").disabled = true;
+  document.getElementById("scan-stats").style.display = "none";
+  document.getElementById("file-input").value = "";
+  roster.forEach(s => { s.status = "absent"; s.confidence = null; s.manual = false; s.note = ""; s.photo = null; });
+  document.getElementById("review-list").innerHTML =
+    '<div class="text-center text-txt-f text-xs py-12 px-4">Scan your class photos and every student will appear here for you to check.</div>';
+  document.getElementById("review-present").textContent = "0";
+  const hintBox = document.getElementById("scan-hints");
+  hintBox.classList.add("hidden"); hintBox.classList.remove("flex");
+  const search = document.getElementById("review-search");
+  if (search) search.value = "";
+  reviewFilter = "all";
+  refreshCounts();
+  refreshPhotoUI();
+  setHud("READY", "muted");
+}
+
+function setHud(text, tone) {
+  const el = document.getElementById("hud-status");
+  const tones = {
+    muted:   "bg-white text-txt-m border-bdr",
+    primary: "bg-primary-light text-primary border-primary/20",
+    success: "bg-success-light text-success border-success/20",
+    danger:  "bg-danger-light text-danger border-danger/20",
+  };
+  el.textContent = text;
+  el.className = "text-[10px] font-mono px-2 py-0.5 rounded border " + (tones[tone] || tones.muted);
+}
+
+/* ---------- camera ----------
+   navigator.mediaDevices exists only in a secure context: https, or
+   localhost. Over plain http to a laptop on the classroom Wi-Fi -- which is
+   exactly how a phone reaches this server -- it is undefined, and reading
+   .getUserMedia off it threw a TypeError that reached the teacher as
+   "Camera error: Cannot read properties of undefined".
+
+   The fallback is not a consolation prize; on a phone it takes the better
+   photograph. A file input with `capture` opens the phone's own camera app,
+   which shoots at the full sensor -- twelve megapixels is ordinary -- while
+   getUserMedia hands back a video frame, 1280x720 unless you ask louder. In a
+   hall of 120 a back-row face spans about 16px in a 1280-wide frame and about
+   60px in a 12MP photo, and identification needs roughly 45px to work at all
+   (RECOGNITION.md). So the live viewfinder is the path worth losing. */
+function liveCameraAvailable() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+/* Should this device use its own camera app rather than a viewfinder in the
+   page? Yes on a phone, for two independent reasons:
+
+     - over plain http navigator.mediaDevices does not exist at all, so there
+       is no viewfinder to offer;
+     - even where there is one, the camera app shoots at the full sensor while
+       getUserMedia hands back a video frame. In a hall of 120 that is a ~60px
+       back-row face against a ~16px one, and 45px is the floor for
+       identification (RECOGNITION.md).
+
+   `pointer: coarse` is true for touch screens and false for a mouse, which is
+   the distinction that matters here. */
+function prefersNativeCamera() {
+  if (!liveCameraAvailable()) return true;
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch (err) {
+    return false;
+  }
+}
+
+/* Show the label or the button, never both. The label opens the phone camera
+   through the capture input; the button opens the in-page viewfinder. */
+function pickCameraControl() {
+  const label = document.getElementById("camera-label");
+  const button = document.getElementById("camera-button");
+  if (!label || !button) return;
+  const native = prefersNativeCamera();
+  label.classList.toggle("hidden", !native);
+  label.classList.toggle("flex", native);
+  button.classList.toggle("hidden", native);
+  button.classList.toggle("flex", !native);
+}
+
+function useNativeCamera() {
+  document.getElementById("camera-input").click();
+}
+
+async function openCamera() {
+  if (!liveCameraAvailable()) { useNativeCamera(); return; }
+  document.getElementById("camera-modal").style.display = "flex";
+  document.getElementById("cam-count").textContent = photos.length;
+  try {
+    // Ask for the largest stream the camera will give. Without this the
+    // browser picks a default around 640x480, where a back row is mush.
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 3840 },
+        height: { ideal: 2160 },
+      },
+    });
+    document.getElementById("camera-video").srcObject = mediaStream;
+  } catch (err) {
+    closeCamera();
+    if (err && err.name === "NotAllowedError") {
+      alert("The camera was blocked. Allow camera access for this site, or use "
+            + "Upload Photos to pick a picture you have already taken.");
+      return;
+    }
+    // Anything else -- no camera, camera busy, an older browser -- is worth
+    // one try through the phone's own camera app before giving up.
+    useNativeCamera();
+  }
+}
+function closeCamera() {
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  document.getElementById("camera-modal").style.display = "none";
+}
+function capturePhoto() {
+  if (photos.length >= MAX_PHOTOS) { alert("Maximum " + MAX_PHOTOS + " photos per session."); return; }
+  const v = document.getElementById("camera-video");
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  c.toBlob(b => {
+    const name = "capture-" + (photos.length + 1) + ".jpg";
+    addFiles([new File([b], name, { type: "image/jpeg" })]);
+    document.getElementById("cam-count").textContent = photos.length + 1;
+  }, "image/jpeg", 0.92);
+}
+
+/* ---------- scan ---------- */
+async function runScan() {
+  if (!photos.length || CLASS_ID === null) return;
+  const btn = document.getElementById("scan-btn");
+  btn.disabled = true;
+  document.getElementById("proc-banner").classList.replace("hidden", "flex");
+  const started = Date.now();
+  const tick = setInterval(() => {
+    const secs = Math.round((Date.now() - started) / 1000);
+    document.getElementById("proc-text").textContent =
+      "Detecting and identifying faces in " + photos.length +
+      (photos.length === 1 ? " photo" : " photos") + " — " + secs + "s";
+  }, 1000);
+  document.getElementById("proc-text").textContent =
+    "Detecting faces in " + photos.length + (photos.length === 1 ? " photo…" : " photos…");
+  setHud("PROCESSING…", "primary");
+  setConsole("running face detection on " + photos.length + " photo(s)…");
+
+  const fd = new FormData();
+  photos.forEach(p => fd.append("photos", p.file));
+  fd.append("class_id", CLASS_ID);
+
+  try {
+    const res = await fetch("/api/scan", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      setHud("ERROR", "danger"); setConsole(data.error || "scan failed");
+      alert(data.error || "Scan failed"); return;
+    }
+
+    lastScan = data;
+    (data.images || []).forEach(img => {
+      if (photos[img.index]) photos[img.index].faces = img.faces || [];
+    });
+
+    document.getElementById("scan-stats").style.display = "grid";
+    document.getElementById("stat-images").textContent = data.images_scanned ?? (data.images || []).length;
+    document.getElementById("stat-total").textContent = data.total_faces;
+    document.getElementById("stat-matched").textContent = data.matched;
+    document.getElementById("stat-unknown").textContent = data.unknown + data.needs_review;
+
+    // The server already merged the photos and picked each student's best sighting.
+    const byId = {};
+    (data.roster || []).forEach(r => byId[r.id] = r);
+    roster.forEach(s => {
+      const hit = byId[s.id];
+      s.manual = false;
+      s.photo = hit ? hit.photo : null;
+      s.references = hit ? hit.references : s.references;
+      if (hit && hit.status === "matched") {
+        s.status = "present"; s.confidence = hit.confidence; s.note = "";
+      } else if (hit && hit.status === "review") {
+        s.status = "absent"; s.confidence = hit.confidence; s.note = "low confidence — check";
+      } else {
+        s.status = "absent"; s.confidence = null; s.note = "";
+      }
+    });
+
+    const hintBox = document.getElementById("scan-hints");
+    if (data.hints && data.hints.length) {
+      hintBox.innerHTML = data.hints
+        .map(h => '<div class="flex items-start gap-1.5"><span class="material-symbols-outlined text-[14px] mt-px">tips_and_updates</span><span>' + esc(h) + '</span></div>')
+        .join("");
+      hintBox.classList.remove("hidden"); hintBox.classList.add("flex");
+    } else {
+      hintBox.classList.add("hidden"); hintBox.classList.remove("flex");
+    }
+
+    reviewFilter = data.needs_review ? "review" : "all";
+    renderReview();
+    refreshPhotoUI();
+    document.getElementById("confirm-btn").disabled = false;
+    setHud("REVIEW REQUIRED", "success");
+
+    let msg = data.total_faces + " faces across " + (data.images || []).length +
+              " photo(s) · " + data.matched + " identified";
+    if (data.median_face_px) msg += " · median face " + data.median_face_px + "px";
+    if (data.repeats) msg += " · " + data.repeats + " repeat sighting(s) merged";
+    setConsole(msg);
+    if (data.skipped && data.skipped.length) {
+      alert("These files could not be read and were skipped:\n" + data.skipped.join("\n"));
+    }
+  } catch (err) {
+    setHud("ERROR", "danger"); alert("Scan failed: " + err.message);
+  } finally {
+    clearInterval(tick);
+    document.getElementById("proc-banner").classList.replace("flex", "hidden");
+    btn.disabled = false;
+  }
+}
+
+/* ---------- preview drawing ---------- */
+function drawPhoto() {
+  const p = photos[activePhoto];
+  if (!p) return;
+  const canvas = document.getElementById("preview-canvas");
+  const ctx = canvas.getContext("2d");
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width; canvas.height = img.height;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const palette = {
+      matched: "#16A34A", review: "#D97706",
+      unknown: "#DC2626", duplicate: "#64748B", repeat: "#2563EB",
+    };
+    (p.faces || []).forEach(f => {
+      const color = palette[f.status] || "#DC2626";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(3, canvas.width / 300);
+      ctx.strokeRect(f.left, f.top, f.right - f.left, f.bottom - f.top);
+
+      const fs = Math.max(13, canvas.width / 60);
+      ctx.font = "600 " + fs + "px monospace";
+      let label;
+      if (f.status === "matched" || f.status === "review") {
+        label = f.name + "  " + Math.round(f.confidence * 100) + "%";
+      } else if (f.status === "repeat") {
+        label = f.name + "  (also seen)";
+      } else if (f.status === "duplicate") {
+        label = "DUPLICATE";
+      } else {
+        label = "UNKNOWN";
+      }
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = color;
+      ctx.fillRect(f.left - 1, f.bottom, tw + 14, fs + 10);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillText(label, f.left + 6, f.bottom + fs + 3);
+    });
+  };
+  img.src = p.dataUrl;
+}
+
+/* ---------- review ----------
+   A hall roster is 120 rows. Rebuilding all of them on every tap made the
+   list visibly stutter and lost the scroll position, so a toggle now repaints
+   only the row that changed and the counters. The full render runs on a scan,
+   a filter change or a search. */
+let reviewFilter = "all";
+
+function matchesFilter(s) {
+  if (reviewFilter === "present") return s.status === "present";
+  if (reviewFilter === "absent") return s.status !== "present";
+  if (reviewFilter === "review") return !!s.note;
+  return true;
+}
+
+function matchesSearch(s, needle) {
+  if (!needle) return true;
+  return (s.name + " " + s.roll_no).toLowerCase().includes(needle);
+}
+
+function rowHtml(s, i) {
+  const on = s.status === "present";
+  const conf = s.confidence !== null && s.confidence !== undefined
+    ? '<span class="font-mono text-[10px] ' + (s.confidence >= 0.6 ? 'text-success' : 'text-warn') + '">' + Math.round(s.confidence * 100) + '% match</span>'
+    : '<span class="font-mono text-[10px] text-txt-f">not detected</span>';
+  const where = s.photo && photos.length > 1
+    ? '<button type="button" onclick="selectPhoto(' + (s.photo - 1) + ')" class="text-[10px] text-primary hover:underline"> · photo ' + s.photo + '</button>'
+    : '';
+  const note = s.note
+    ? '<span class="text-[10px] text-warn"> · ' + esc(s.note) + '</span>' : '';
+  /* One reference photo is the commonest reason a student is missed, and the
+     teacher can fix it in a minute, so flag it where they will see it. */
+  const thin = s.references === 1
+    ? '<span class="text-[10px] text-txt-f" title="Enrolled from one photo. Add two more for a better chance of being recognised."> · 1 photo</span>' : '';
+  return `
+    <div class="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-bdr last:border-0 ${on ? 'bg-success-light/40' : ''}">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0"
+             style="background:${avatarColors[i % avatarColors.length]}">${esc(initials(s.name))}</div>
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-txt truncate">${esc(s.name)}</div>
+          <div class="text-[10px] font-mono text-txt-f truncate">${esc(s.roll_no)} · ${conf}${where}${note}${thin}</div>
+        </div>
+      </div>
+      <button type="button" onclick="toggle(${i})" aria-pressed="${on}"
+        class="flex-shrink-0 min-w-[84px] text-[11px] font-bold tracking-wide px-3 py-2 rounded-lg border transition-colors ${
+          on ? 'bg-success text-white border-success hover:bg-green-700'
+             : 'bg-white text-txt-f border-bdr hover:border-success hover:text-success'}">
+        ${on ? 'PRESENT' : 'ABSENT'}
+      </button>
+    </div>`;
+}
+
+function renderReview() {
+  const list = document.getElementById("review-list");
+  const needle = (document.getElementById("review-search")?.value || "").trim().toLowerCase();
+  const shown = roster
+    .map((s, i) => [s, i])
+    .filter(([s]) => matchesFilter(s) && matchesSearch(s, needle));
+
+  list.innerHTML = shown.length
+    ? shown.map(([s, i]) => `<div data-row="${i}">${rowHtml(s, i)}</div>`).join("")
+    : '<div class="text-center text-txt-f text-xs py-12 px-4">No student matches that filter.</div>';
+  refreshCounts();
+}
+
+function refreshCounts() {
+  const present = roster.filter(s => s.status === "present").length;
+  const suggested = roster.filter(s => s.note && s.status !== "present").length;
+  document.getElementById("review-present").textContent = present;
+  document.getElementById("count-all").textContent = roster.length;
+  document.getElementById("count-present").textContent = present;
+  document.getElementById("count-absent").textContent = roster.length - present;
+  document.getElementById("count-review").textContent =
+    roster.filter(s => !!s.note).length;
+  const accept = document.getElementById("accept-suggested");
+  document.getElementById("suggested-count").textContent = suggested;
+  accept.disabled = suggested === 0;
+  document.querySelectorAll("#review-filters [data-filter]").forEach(b => {
+    b.classList.toggle("is-active", b.dataset.filter === reviewFilter);
+  });
+}
+
+function setFilter(name) { reviewFilter = name; renderReview(); }
+
+function repaintRow(i) {
+  const holder = document.querySelector(`#review-list [data-row="${i}"]`);
+  if (!holder) { renderReview(); return; }
+  /* If the row no longer belongs in the current filter, fall back to a full
+     render so it disappears rather than lingering in a stale list. */
+  if (!matchesFilter(roster[i])) { renderReview(); return; }
+  holder.innerHTML = rowHtml(roster[i], i);
+  refreshCounts();
+}
+
+function toggle(i) {
+  roster[i].status = roster[i].status === "present" ? "absent" : "present";
+  roster[i].manual = true;
+  repaintRow(i);
+}
+
+/* The scan leaves borderline students absent with a note. In a hall that can
+   be twenty people, and clicking twenty rows by hand is how a teacher decides
+   the app is not worth using. */
+function acceptSuggested() {
+  let n = 0;
+  roster.forEach(s => {
+    if (s.note && s.status !== "present") { s.status = "present"; s.manual = true; n++; }
+  });
+  renderReview();
+  document.getElementById("confirm-btn").disabled = false;
+  setConsole("accepted " + n + " suggested student(s)");
+}
+
+function markAll(status) {
+  roster.forEach(s => { s.status = status; s.manual = true; });
+  renderReview();
+  document.getElementById("confirm-btn").disabled = false;
+}
+
+/* ---------- confirm ---------- */
+async function confirmSession() {
+  const btn = document.getElementById("confirm-btn");
+  btn.disabled = true;
+  const payload = {
+    class_id: CLASS_ID,
+    date: document.getElementById("in-date").value,
+    period: document.getElementById("in-period").value,
+    taken_by: document.getElementById("in-teacher").value,
+    total_faces: lastScan ? lastScan.total_faces : 0,
+    photo_count: photos.length,
+    present: roster.filter(s => s.status === "present").map(s => ({
+      student_id: s.id, confidence: s.confidence, manual: s.manual, status: "present"
+    })),
+  };
+  try {
+    const res = await fetch("/api/session/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || "Could not save"); btn.disabled = false; return; }
+    setConsole("saved: " + data.present + " present, " + data.absent + " absent");
+    window.location = "/records/" + data.session_id;
+  } catch (err) {
+    alert("Save failed: " + err.message);
+    btn.disabled = false;
+  }
+}
+
+if (roster.length) renderReview();
+// Runs at parse time, after the controls exist: the script tag sits at the
+// end of the body, so there is no DOMContentLoaded to wait for and no flash
+// of the wrong button.
+pickCameraControl();
+</script>
+{% endblock %}
